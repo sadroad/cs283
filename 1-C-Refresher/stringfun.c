@@ -14,7 +14,7 @@ int setup_buff(char *, char *, int);
 int count_words(char *, int, int);
 void print_reverse_string(char *, int);
 void print_words(char *, int);
-void search_replace(char *, int, char *, int);
+void search_replace(char *, int *, char *, int, char *, int);
 // add additional prototypes here
 
 int setup_buff(char *buff, char *user_str, int len) {
@@ -97,7 +97,59 @@ void print_words(char *buff, int str_len) {
   }
 }
 
+void search_replace(char *buff, int *buff_length, char *search_word,
+                    int sw_length, char *replace_word, int rw_length) {
+  int i = 0;
+  while (i + rw_length < *buff_length) {
+    if (buff[i] == search_word[0]) {
+      int valid_word = 1;
+      for (int j = 1; j < sw_length; j++) {
+        if (buff[i + j] != search_word[j]) {
+          valid_word = 0;
+          break;
+        }
+      }
+      if (!valid_word) {
+        i++;
+        continue;
+      }
+      if (sw_length != rw_length) {
+        if (rw_length < sw_length) {
+          for (int pos = i + sw_length; pos < *buff_length; pos++) {
+            buff[pos - (sw_length - rw_length)] = buff[pos];
+            *buff_length = *buff_length + sw_length - rw_length;
+          }
+        } else {
+          for (int pos = *buff_length - 1; pos >= i + sw_length; pos--) {
+            buff[pos + (rw_length - sw_length)] = buff[pos];
+          }
+          *buff_length = *buff_length + rw_length - sw_length;
+        }
+      }
+      for (int k = 0; k < rw_length; k++) {
+        buff[i + k] = replace_word[k];
+      }
+      i += rw_length;
+    }
+    i++;
+  }
+
+  printf("Modified String: ");
+  for (int i = 0; i < *buff_length - 1; i++) {
+    printf("%c", buff[i]);
+  }
+  printf("\n");
+}
+
 // ADD OTHER HELPER FUNCTIONS HERE FOR OTHER REQUIRED PROGRAM OPTIONS
+
+int len(char *buf) {
+  int i = 0;
+  while (buf[i] != '\0') {
+    i++;
+  }
+  return i;
+}
 
 int main(int argc, char *argv[]) {
 
@@ -172,11 +224,17 @@ int main(int argc, char *argv[]) {
   // TODO:  #5 Implement the other cases for 'r' and 'w' by extending
   //        the case statement options
   case 'x':
-    if (argc == 5) {
+    if (argc != 5) {
       usage(argv[0]);
       exit(1);
     }
-    search_replace(buff, user_str_len, buff, user_str_len);
+    char *search_word = argv[3];
+    int search_word_len = len(search_word);
+    char *replace_word = argv[4];
+    int replace_word_len = len(replace_word);
+
+    search_replace(buff, &user_str_len, search_word, search_word_len,
+                   replace_word, replace_word_len);
     break;
   default:
     usage(argv[0]);
