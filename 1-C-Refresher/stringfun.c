@@ -21,30 +21,30 @@ int setup_buff(char *buff, char *user_str, int len) {
   int buff_pos = 0;
   int last_was_space = 1;
 
-  for (int i = 0; user_str[i] != '\0'; i++) {
+  for (int i = 0; *(user_str + i) != '\0'; i++) {
     if (buff_pos >= len) {
       return -1;
     }
 
-    if (user_str[i] == ' ' || user_str[i] == '\t') {
+    if (*(user_str + i) == ' ' || *(user_str + i) == '\t') {
       if (!last_was_space) {
-        buff[buff_pos++] = ' ';
+        *(buff + (buff_pos++)) = ' ';
         last_was_space = 1;
       }
     } else {
-      buff[buff_pos++] = user_str[i];
+      *(buff + (buff_pos++)) = *(user_str + i);
       last_was_space = 0;
     }
   }
 
-  if (buff_pos > 0 && buff[buff_pos - 1] == ' ') {
+  if (buff_pos > 0 && *(buff + (buff_pos - 1)) == ' ') {
     buff_pos--;
   }
 
   int user_str_len = buff_pos;
 
   while (buff_pos < len) {
-    buff[buff_pos++] = '.';
+    *(buff + (buff_pos++)) = '.';
   }
 
   return user_str_len;
@@ -65,7 +65,7 @@ void usage(char *exename) {
 int count_words(char *buff, int len, int str_len) {
   int word_count = 0;
   for (int i = 0; i < str_len; i++) {
-    if (buff[i] != ' ' && (i == 0 || buff[i - 1] == ' ')) {
+    if (*(buff + i) != ' ' && (i == 0 || *(buff + (i - 1)) == ' ')) {
       word_count++;
     }
   }
@@ -76,7 +76,7 @@ int count_words(char *buff, int len, int str_len) {
 void print_reverse_string(char *buff, int str_len) {
   printf("Reveresed String: ");
   for (int i = str_len - 1; i >= 0; i--) {
-    printf("%c", buff[i]);
+    printf("%c", *(buff + i));
   }
   printf("\n");
 }
@@ -85,11 +85,11 @@ void print_words(char *buff, int str_len) {
   printf("Word Print\n----------\n");
   int word_count = 0;
   for (int i = 0; i < str_len; i++) {
-    if (buff[i] != ' ' && (i == 0 || buff[i - 1] == ' ')) {
+    if (*(buff + i) != ' ' && (i == 0 || *(buff + (i - 1)) == ' ')) {
       printf("%d. ", ++word_count);
       int word_len = 0;
-      for (int j = i; j < str_len && buff[j] != ' '; j++) {
-        printf("%c", buff[j]);
+      for (int j = i; j < str_len && *(buff + j) != ' '; j++) {
+        printf("%c", *(buff + j));
         word_len++;
       }
       printf(" (%d)\n", word_len);
@@ -101,10 +101,10 @@ void search_replace(char *buff, int *buff_length, char *search_word,
                     int sw_length, char *replace_word, int rw_length) {
   int i = 0;
   while (i + rw_length < *buff_length) {
-    if (buff[i] == search_word[0]) {
+    if (*(buff + i) == *search_word) {
       int valid_word = 1;
       for (int j = 1; j < sw_length; j++) {
-        if (buff[i + j] != search_word[j]) {
+        if (*(buff + (i + j)) != *(search_word + j)) {
           valid_word = 0;
           break;
         }
@@ -116,18 +116,18 @@ void search_replace(char *buff, int *buff_length, char *search_word,
       if (sw_length != rw_length) {
         if (rw_length < sw_length) {
           for (int pos = i + sw_length; pos < *buff_length; pos++) {
-            buff[pos - (sw_length - rw_length)] = buff[pos];
+            *(buff + (pos - (sw_length - rw_length))) = *(buff + pos);
             *buff_length = *buff_length + sw_length - rw_length;
           }
         } else {
           for (int pos = *buff_length - 1; pos >= i + sw_length; pos--) {
-            buff[pos + (rw_length - sw_length)] = buff[pos];
+            *(buff + (pos + (rw_length - sw_length))) = *(buff + pos);
           }
           *buff_length = *buff_length + rw_length - sw_length;
         }
       }
       for (int k = 0; k < rw_length; k++) {
-        buff[i + k] = replace_word[k];
+        *(buff + (i + k)) = *(replace_word + k);
       }
       i += rw_length;
     }
@@ -136,7 +136,7 @@ void search_replace(char *buff, int *buff_length, char *search_word,
 
   printf("Modified String: ");
   for (int i = 0; i < *buff_length - 1; i++) {
-    printf("%c", buff[i]);
+    printf("%c", *(buff + i));
   }
   printf("\n");
 }
@@ -145,9 +145,8 @@ void search_replace(char *buff, int *buff_length, char *search_word,
 
 int len(char *buf) {
   int i = 0;
-  while (buf[i] != '\0') {
+  while (*(buf + i) != '\0')
     i++;
-  }
   return i;
 }
 
