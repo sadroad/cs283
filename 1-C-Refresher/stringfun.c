@@ -10,11 +10,13 @@ void print_buff(char *, int);
 int setup_buff(char *, char *, int);
 
 // prototypes for functions to handle required functionality
-// TODO: replace void with int and error codes
+// Return codes:
+// -1 = Buffer size related errors
+// -2 = Other documented errors
 int count_words(char *, int, int);
-void print_reverse_string(char *, int);
-void print_words(char *, int);
-void search_replace(char *, int *, char *, int, char *, int);
+int print_reverse_string(char *, int);
+int print_words(char *, int);
+int search_replace(char *, int *, char *, int, char *, int);
 // add additional prototypes here
 
 int setup_buff(char *buff, char *user_str, int len) {
@@ -63,6 +65,13 @@ void usage(char *exename) {
 }
 
 int count_words(char *buff, int len, int str_len) {
+  if (buff == NULL) {
+    return -2;
+  }
+  if (len <= 0 || str_len <= 0 || str_len > len) {
+    return -2;
+  }
+
   int word_count = 0;
   for (int i = 0; i < str_len; i++) {
     if (*(buff + i) != ' ' && (i == 0 || *(buff + (i - 1)) == ' ')) {
@@ -73,15 +82,28 @@ int count_words(char *buff, int len, int str_len) {
   return word_count;
 }
 
-void print_reverse_string(char *buff, int str_len) {
+int print_reverse_string(char *buff, int str_len) {
+  if (buff == NULL) {
+    return -2;
+  }
+  if (str_len <= 0) {
+    return -2;
+  }
   printf("Reveresed String: ");
   for (int i = str_len - 1; i >= 0; i--) {
     printf("%c", *(buff + i));
   }
   printf("\n");
+  return str_len;
 }
 
-void print_words(char *buff, int str_len) {
+int print_words(char *buff, int str_len) {
+  if (buff == NULL) {
+    return -2;
+  }
+  if (str_len <= 0) {
+    return -2;
+  }
   printf("Word Print\n----------\n");
   int word_count = 0;
   for (int i = 0; i < str_len; i++) {
@@ -95,10 +117,21 @@ void print_words(char *buff, int str_len) {
       printf(" (%d)\n", word_len);
     }
   }
+  return word_count;
 }
 
-void search_replace(char *buff, int *buff_length, char *search_word,
-                    int sw_length, char *replace_word, int rw_length) {
+int search_replace(char *buff, int *buff_length, char *search_word,
+                   int sw_length, char *replace_word, int rw_length) {
+  if (buff == NULL || search_word == NULL || replace_word == NULL) {
+    return -2;
+  }
+  if (*buff_length <= 0 || sw_length <= 0 || rw_length <= 0) {
+    return -2;
+  }
+  if (*buff_length + (rw_length - sw_length) > BUFFER_SZ) {
+    // Would cause buffer overflow
+    return -1;
+  }
   int i = 0;
   while (i + rw_length < *buff_length) {
     if (*(buff + i) == *search_word) {
@@ -139,6 +172,7 @@ void search_replace(char *buff, int *buff_length, char *search_word,
     printf("%c", *(buff + i));
   }
   printf("\n");
+  return *buff_length;
 }
 
 // ADD OTHER HELPER FUNCTIONS HERE FOR OTHER REQUIRED PROGRAM OPTIONS
@@ -215,10 +249,18 @@ int main(int argc, char *argv[]) {
     printf("Word Count: %d\n", rc);
     break;
   case 'r':
-    print_reverse_string(buff, user_str_len);
+    rc = print_reverse_string(buff, user_str_len);
+    if (rc < 0) {
+      printf("Error reversing string, rc = %d\n", rc);
+      exit(3);
+    }
     break;
   case 'w':
-    print_words(buff, user_str_len);
+    rc = print_words(buff, user_str_len);
+    if (rc < 0) {
+      printf("Error printing words, rc = %d\n", rc);
+      exit(3);
+    }
     break;
   // TODO:  #5 Implement the other cases for 'r' and 'w' by extending
   //        the case statement options
@@ -232,8 +274,16 @@ int main(int argc, char *argv[]) {
     char *replace_word = argv[4];
     int replace_word_len = len(replace_word);
 
-    search_replace(buff, &user_str_len, search_word, search_word_len,
-                   replace_word, replace_word_len);
+    rc = search_replace(buff, &user_str_len, search_word, search_word_len,
+                        replace_word, replace_word_len);
+    if (rc == -1) {
+      printf("Error: Buffer overflow would occur - replacement would execeed "
+             "buffer size\n");
+      exit(3);
+    } else if (rc < 0) {
+      printf("Error in search and replace, rc = %d\n", rc);
+      exit(3);
+    }
     break;
   default:
     usage(argv[0]);
