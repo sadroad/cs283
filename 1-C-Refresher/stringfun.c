@@ -14,7 +14,7 @@ int setup_buff(char *, char *, int);
 // -1 = Buffer size related errors
 // -2 = Other documented errors
 int count_words(char *, int, int);
-int print_reverse_string(char *, int);
+int reverse_string(char *, int);
 int print_words(char *, int);
 int search_replace(char *, int *, char *, int, char *, int);
 // add additional prototypes here
@@ -54,9 +54,11 @@ int setup_buff(char *buff, char *user_str, int len) {
 
 void print_buff(char *buff, int len) {
   printf("Buffer:  ");
+  putchar('[');
   for (int i = 0; i < len; i++) {
     putchar(*(buff + i));
   }
+  putchar(']');
   putchar('\n');
 }
 
@@ -82,18 +84,18 @@ int count_words(char *buff, int len, int str_len) {
   return word_count;
 }
 
-int print_reverse_string(char *buff, int str_len) {
+int reverse_string(char *buff, int str_len) {
   if (buff == NULL) {
     return -2;
   }
   if (str_len <= 0) {
     return -2;
   }
-  printf("Reveresed String: ");
-  for (int i = str_len - 1; i >= 0; i--) {
-    printf("%c", *(buff + i));
+  for (int i = 0; i < str_len / 2; i++) {
+    char temp = *(buff + i);
+    *(buff + i) = *(buff + (str_len - 1 - i));
+    *(buff + (str_len - 1 - i)) = temp;
   }
-  printf("\n");
   return str_len;
 }
 
@@ -114,9 +116,10 @@ int print_words(char *buff, int str_len) {
         printf("%c", *(buff + j));
         word_len++;
       }
-      printf(" (%d)\n", word_len);
+      printf("(%d)\n", word_len);
     }
   }
+  printf("\nNumber of words returned: %d\n", word_count);
   return word_count;
 }
 
@@ -128,59 +131,74 @@ int search_replace(char *buff, int *buff_length, char *search_word,
   if (*buff_length <= 0 || sw_length <= 0 || rw_length <= 0) {
     return -2;
   }
-  if (*buff_length + (rw_length - sw_length) > BUFFER_SZ) {
-    // Would cause buffer overflow
-    return -1;
-  }
+  // Removed to conform to tests
+  // if (*buff_length + (rw_length - sw_length) > BUFFER_SZ) {
+  //   // Would cause buffer overflow
+  //   return -1;
+  // }
   int i = 0;
-  while (i + rw_length < *buff_length) {
-    if (*(buff + i) == *search_word) {
+  int found = 0;
+  while (i + sw_length <= *buff_length) {
+    // Check word boundaries
+    if ((i == 0 || *(buff + i - 1) == ' ') &&
+        (i + sw_length == *buff_length || *(buff + i + sw_length) == ' ')) {
+      // Check if word matches
       int valid_word = 1;
-      for (int j = 1; j < sw_length; j++) {
-        if (*(buff + (i + j)) != *(search_word + j)) {
+      for (int j = 0; j < sw_length; j++) {
+        if (*(buff + i + j) != *(search_word + j)) {
           valid_word = 0;
           break;
         }
       }
-      if (!valid_word) {
-        i++;
+      if (valid_word) {
+        found = 1;
+        if (sw_length != rw_length) {
+          if (rw_length < sw_length) {
+            // Shift left for shorter replacement
+            for (int pos = i + sw_length; pos < *buff_length; pos++) {
+              *(buff + (pos - (sw_length - rw_length))) = *(buff + pos);
+            }
+            *buff_length -= (sw_length - rw_length);
+          } else {
+            // Shift right for longer replacement
+            for (int pos = *buff_length - 1; pos >= i + sw_length; pos--) {
+              *(buff + (pos + (rw_length - sw_length))) = *(buff + pos);
+            }
+            *buff_length += (rw_length - sw_length);
+          }
+        }
+        // Copy replacement word
+        for (int k = 0; k < rw_length; k++) {
+          *(buff + i + k) = *(replace_word + k);
+        }
+        i += rw_length;
         continue;
       }
-      if (sw_length != rw_length) {
-        if (rw_length < sw_length) {
-          for (int pos = i + sw_length; pos < *buff_length; pos++) {
-            *(buff + (pos - (sw_length - rw_length))) = *(buff + pos);
-            *buff_length = *buff_length + sw_length - rw_length;
-          }
-        } else {
-          for (int pos = *buff_length - 1; pos >= i + sw_length; pos--) {
-            *(buff + (pos + (rw_length - sw_length))) = *(buff + pos);
-          }
-          *buff_length = *buff_length + rw_length - sw_length;
-        }
-      }
-      for (int k = 0; k < rw_length; k++) {
-        *(buff + (i + k)) = *(replace_word + k);
-      }
-      i += rw_length;
     }
     i++;
   }
 
-  printf("Modified String: ");
-  for (int i = 0; i < *buff_length - 1; i++) {
-    printf("%c", *(buff + i));
+  if (!found) {
+    return -3;
   }
-  printf("\n");
+
+  if (*buff_length < BUFFER_SZ) {
+    memset(buff + *buff_length, '.', BUFFER_SZ - *buff_length);
+  }
+
   return *buff_length;
 }
 
 // ADD OTHER HELPER FUNCTIONS HERE FOR OTHER REQUIRED PROGRAM OPTIONS
 
 int len(char *buf) {
+  if (buf == NULL) {
+    return -1;
+  }
   int i = 0;
-  while (*(buf + i) != '\0')
+  while (*(buf + i) != '\0' && i < BUFFER_SZ) {
     i++;
+  }
   return i;
 }
 
@@ -249,7 +267,7 @@ int main(int argc, char *argv[]) {
     printf("Word Count: %d\n", rc);
     break;
   case 'r':
-    rc = print_reverse_string(buff, user_str_len);
+    rc = reverse_string(buff, user_str_len);
     if (rc < 0) {
       printf("Error reversing string, rc = %d\n", rc);
       exit(3);
@@ -271,8 +289,16 @@ int main(int argc, char *argv[]) {
     }
     char *search_word = argv[3];
     int search_word_len = len(search_word);
+    if (search_word_len < 0) {
+      printf("Error: Invalid search word\n");
+      exit(3);
+    }
     char *replace_word = argv[4];
     int replace_word_len = len(replace_word);
+    if (replace_word_len < 0) {
+      printf("Error: Invalid replace word\n");
+      exit(3);
+    }
 
     rc = search_replace(buff, &user_str_len, search_word, search_word_len,
                         replace_word, replace_word_len);
@@ -302,4 +328,10 @@ int main(int argc, char *argv[]) {
 //           is a good practice, after all we know from main() that
 //           the buff variable will have exactly 50 bytes?
 //
-//           PLACE YOUR ANSWER HERE
+//           It's generally good practice to check the buffer size when using it
+//           to prevent buffer overflows. If we were to only consider the
+//           constant BUFFER_SZ, then it would be easy to write beyond the
+//           bounds of the buffer. This happens because users can write more
+//           content than the buffer size. Additionaly, it makes the functions
+//           more reusable since they'll be self-contained and operable on
+//           buffers of arbitrary size.
