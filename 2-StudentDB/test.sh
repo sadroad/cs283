@@ -81,16 +81,16 @@ setup_file() {
   }
 }
 
-#@test "Make sure the file storage is correct at this time" {
-#    run du -h ./student.db
-#   [ "$status" -eq 0 ]
-#    #note du -h puts a tab between the 2 fields need to match on that
-#    [ "$output" = "12K$(echo -e '\t')./student.db" ] || {
-#        echo "Failed Output:  $output"
-#        echo "12K     ./student.db"
-#        return 1
-#    }
-#}
+@test "Make sure the file storage is correct at this time" {
+  run du -h ./student.db
+  [ "$status" -eq 0 ]
+  #note du -h puts a tab between the 2 fields need to match on that
+  [ "$output" = "12K$(echo -e '\t')./student.db" ] || {
+    echo "Failed Output:  $output"
+    echo "12K     ./student.db"
+    return 1
+  }
+}
 
 @test "Find student 3 in db" {
   run ./sdbsc -f 3
@@ -103,7 +103,6 @@ setup_file() {
 
   # Define the expected output
   expected_output="3 jane doe 0.03"
-
   # Compare the normalized output with the expected output
   [ "$normalized_output" = "$expected_output" ] || {
     echo "Failed Output:  $normalized_output"
@@ -178,16 +177,16 @@ setup_file() {
 #if you implemented the compress db function remove the
 #skip from the tests below
 
-#@test "Double check storage at this point" {
-#    run du -h ./student.db
-#    [ "$status" -eq 0 ]
-#    #note du -h puts a tab between the 2 fields need to match on that
-#    [ "$output" = "12K$(echo -e '\t')./student.db" ] || {
-#        echo "Failed Output:  $output"
-#        echo "12K     ./student.db"
-#        return 1
-#    }
-#}
+@test "Double check storage at this point" {
+  run du -h ./student.db
+  [ "$status" -eq 0 ]
+  #note du -h puts a tab between the 2 fields need to match on that
+  [ "$output" = "12K$(echo -e '\t')./student.db" ] || {
+    echo "Failed Output:  $output"
+    echo "12K     ./student.db"
+    return 1
+  }
+}
 
 @test "Compress db - try 1" {
   run ./sdbsc -x
@@ -198,16 +197,16 @@ setup_file() {
   }
 }
 
-#@test "One block should be gone" {
-#    run du -h ./student.db
-#    [ "$status" -eq 0 ]
-#    #note du -h puts a tab between the 2 fields need to match on that
-#    [ "$output" = "8.0K$(echo -e '\t')./student.db" ] || {
-#        echo "Failed Output:  $output"
-#        echo "8.0K     ./student.db"
-#        return 1
-#    }
-#}
+@test "One block should be gone" {
+  run du -h ./student.db
+  [ "$status" -eq 0 ]
+  #note du -h puts a tab between the 2 fields need to match on that
+  [ "$output" = "8.0K$(echo -e '\t')./student.db" ] || {
+    echo "Failed Output:  $output"
+    echo "8.0K     ./student.db"
+    return 1
+  }
+}
 
 @test "Delete student 99999 in db" {
   run ./sdbsc -d 99999
@@ -227,13 +226,13 @@ setup_file() {
   }
 }
 
-#@test "Should be down to 1 block" {
-#    run du -h ./student.db
-#    [ "$status" -eq 0 ]
-#    #note du -h puts a tab between the 2 fields need to match on that
-#    [ "$output" = "4.0K$(echo -e '\t')./student.db" ] || {
-#        echo "Failed Output:  $output"
-#        echo "4.0K     ./student.db"
-#        return 1
-#    }
-#}
+@test "Should be down to 1 block" {
+  run du -h ./student.db
+  [ "$status" -eq 0 ]
+  #note du -h puts a tab between the 2 fields need to match on that
+  [ "$output" = "4.0K$(echo -e '\t')./student.db" ] || {
+    echo "Failed Output:  $output"
+    echo "4.0K     ./student.db"
+    return 1
+  }
+}
