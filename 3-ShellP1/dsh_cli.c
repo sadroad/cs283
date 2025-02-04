@@ -1,3 +1,4 @@
+#include <linux/limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,11 +45,48 @@
  *
  *  See the provided test cases for output expectations.
  */
+
 int main() {
-  char *cmd_buff;
+  char cmd_buff[SH_CMD_MAX];
   int rc = 0;
   command_list_t clist;
 
-  printf(M_NOT_IMPL);
-  exit(EXIT_NOT_IMPL);
+  while (1) {
+    printf("%s", SH_PROMPT);
+    if (fgets(cmd_buff, SH_CMD_MAX, stdin) == NULL) {
+      printf("\n");
+      break;
+    }
+    cmd_buff[strcspn(cmd_buff, "\n")] = '\0';
+
+    if (strncmp(cmd_buff, EXIT_CMD, 4) == 0) {
+      break;
+    }
+
+    rc = build_cmd_list(cmd_buff, &clist);
+    switch (rc) {
+    case OK: {
+      printf(CMD_OK_HEADER, clist.num);
+      for (int i = 0; i < clist.num; i++) {
+        printf("<%d> %s", i + 1, clist.commands[i].exe);
+        if (strlen(clist.commands[i].args) == 0) {
+          printf("\n");
+        } else {
+          printf(" [%s]\n", clist.commands[i].args);
+        }
+      }
+      break;
+    }
+    case WARN_NO_CMDS: {
+      printf(CMD_WARN_NO_CMD);
+      break;
+    }
+    case ERR_TOO_MANY_COMMANDS: {
+      printf(CMD_ERR_PIPE_LIMIT, CMD_MAX);
+      break;
+    }
+    }
+  }
+  free_cmd_list(&clist);
+  return OK;
 }

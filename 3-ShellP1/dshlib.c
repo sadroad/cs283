@@ -32,7 +32,70 @@
  *  Standard Library Functions You Might Want To Consider Using
  *      memset(), strcmp(), strcpy(), strtok(), strlen(), strchr()
  */
+
+void remove_whitespace(char *s) {
+  char *start = s;
+  char *end;
+
+  while (*start && *start == SPACE_CHAR) {
+    start++;
+  }
+
+  if (*start == '\0') {
+    *s = '\0';
+    return;
+  }
+
+  end = start + strlen(start) - 1;
+
+  while (end > start && *end == SPACE_CHAR) {
+    end--;
+  }
+
+  *(end + 1) = '\0';
+
+  if (start != s) {
+    memmove(s, start, end - start + 2);
+  }
+}
+
+void free_cmd_list(command_list_t *clist) {}
+
 int build_cmd_list(char *cmd_line, command_list_t *clist) {
-  printf(M_NOT_IMPL);
-  return EXIT_NOT_IMPL;
+  if (strlen(cmd_line) == 0) {
+    return WARN_NO_CMDS;
+  }
+
+  clist->num = 0;
+
+  char *cmd_save;
+  char *cmd = strtok_r(cmd_line, PIPE_STRING, &cmd_save);
+  while (cmd != NULL) {
+    if (clist->num == CMD_MAX) {
+      return ERR_TOO_MANY_COMMANDS;
+    }
+    remove_whitespace(cmd);
+
+    char *next_s = cmd;
+    char *exe = strsep(&next_s, SPACE_STRING);
+
+    if (strlen(exe) > EXE_MAX || (next_s != NULL && strlen(next_s) > ARG_MAX)) {
+      return ERR_CMD_OR_ARGS_TOO_BIG;
+    }
+
+    command_t *command = malloc(sizeof *command);
+    if (command == NULL) {
+      free_cmd_list(clist);
+      fprintf(stderr, "Unable to alloc space for command");
+      exit(-1);
+    }
+    strcpy(command->exe, exe);
+    if (next_s != NULL) {
+      strcpy(command->args, next_s);
+    }
+
+    clist->commands[clist->num++] = *command;
+    cmd = strtok_r(NULL, PIPE_STRING, &cmd_save);
+  }
+  return OK;
 }
