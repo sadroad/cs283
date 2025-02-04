@@ -19,6 +19,7 @@ $(TARGET): $(SRCS) $(HDRS)
 # Clean up build files
 clean:
 	rm -f $(TARGET)
+	rm -rf dsh.dSYM
 
 test:
 	./test.sh
