@@ -41,8 +41,6 @@ typedef struct command_list {
 // prototypes
 int build_cmd_list(char *cmd_line, command_list_t *clist);
 
-void free_cmd_list(command_list_t *clist);
-
 // output constants
 #define CMD_OK_HEADER "PARSED COMMAND LINE - TOTAL COMMANDS %d\n"
 #define CMD_WARN_NO_CMD "warning: no commands provided\n"

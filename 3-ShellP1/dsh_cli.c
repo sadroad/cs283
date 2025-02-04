@@ -87,6 +87,5 @@ int main() {
     }
     }
   }
-  free_cmd_list(&clist);
   return OK;
 }

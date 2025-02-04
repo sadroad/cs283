@@ -59,14 +59,20 @@ void remove_whitespace(char *s) {
   }
 }
 
-void free_cmd_list(command_list_t *clist) {}
-
 int build_cmd_list(char *cmd_line, command_list_t *clist) {
   if (strlen(cmd_line) == 0) {
     return WARN_NO_CMDS;
   }
 
   clist->num = 0;
+
+  if (clist == NULL) {
+    exit(-1);
+  }
+
+  for (int i = 0; i < clist->num; i++) {
+    memset(&clist->commands[i], 0, sizeof clist->commands);
+  }
 
   char *cmd_save;
   char *cmd = strtok_r(cmd_line, PIPE_STRING, &cmd_save);
@@ -83,18 +89,14 @@ int build_cmd_list(char *cmd_line, command_list_t *clist) {
       return ERR_CMD_OR_ARGS_TOO_BIG;
     }
 
-    command_t *command = malloc(sizeof *command);
-    if (command == NULL) {
-      free_cmd_list(clist);
-      fprintf(stderr, "Unable to alloc space for command");
-      exit(-1);
-    }
-    strcpy(command->exe, exe);
+    strcpy(clist->commands[clist->num].exe, exe);
     if (next_s != NULL) {
-      strcpy(command->args, next_s);
+      strcpy(clist->commands[clist->num].args, next_s);
+    } else {
+      clist->commands[clist->num].args[0] = '\0';
     }
 
-    clist->commands[clist->num++] = *command;
+    clist->num++;
     cmd = strtok_r(NULL, PIPE_STRING, &cmd_save);
   }
   return OK;
