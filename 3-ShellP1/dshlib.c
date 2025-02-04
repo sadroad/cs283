@@ -64,15 +64,11 @@ int build_cmd_list(char *cmd_line, command_list_t *clist) {
     return WARN_NO_CMDS;
   }
 
-  clist->num = 0;
-
   if (clist == NULL) {
     exit(-1);
   }
 
-  for (int i = 0; i < clist->num; i++) {
-    memset(&clist->commands[i], 0, sizeof clist->commands);
-  }
+  memset(clist, 0, sizeof(*clist));
 
   char *cmd_save;
   char *cmd = strtok_r(cmd_line, PIPE_STRING, &cmd_save);
@@ -85,7 +81,8 @@ int build_cmd_list(char *cmd_line, command_list_t *clist) {
     char *next_s = cmd;
     char *exe = strsep(&next_s, SPACE_STRING);
 
-    if (strlen(exe) > EXE_MAX || (next_s != NULL && strlen(next_s) > ARG_MAX)) {
+    if (strlen(exe) >= EXE_MAX ||
+        (next_s != NULL && strlen(next_s) >= ARG_MAX)) {
       return ERR_CMD_OR_ARGS_TOO_BIG;
     }
 

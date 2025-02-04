@@ -1,8 +1,7 @@
 #!/usr/bin/env bun
+import * as os from "os";
 
-import { platform } from "os";
-
-const bytes = await Bun.file("./dragon").bytes();
+const bytes = await Bun.file("./dragon.bin").bytes();
 
 let out = "const unsigned char DRAGON[] = {\n";
 const bytesPerLine = 16;
@@ -30,17 +29,12 @@ if (bytes.length % bytesPerLine !== 0) {
 }
 out += "};\n";
 
-switch (platform()) {
-  case "darwin": {
-    const proc = Bun.spawn(["pbcopy"], {
-      stdin: "pipe"
-    });
-    proc.stdin.write(out);
-    proc.stdin.end();
-    await proc.exited;
-    break;
-  }
-}
+const proc = Bun.spawn([`${os.platform() == "darwin" ? 'pbcopy' : 'wl-copy'}`], {
+  stdin: "pipe"
+});
+proc.stdin.write(out);
+proc.stdin.end();
+await proc.exited;
 
 console.log("C array copied to clipboard!");
 console.log(out);
