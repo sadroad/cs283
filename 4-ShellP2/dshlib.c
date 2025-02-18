@@ -1,5 +1,6 @@
 #include "dshlib.h"
 #include <assert.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -129,29 +130,18 @@ int process_cmd_buff(char *cmd_line, cmd_buff_t *buf) {
   return OK;
 }
 
-/*
- *      OK                      the command was parsed properly
- *      WARN_NO_CMDS            the user command was empty
- *      ERR_TOO_MANY_COMMANDS   too many pipes used
- *      ERR_MEMORY              dynamic memory management failure
- *
- *   errors returned
- *      OK                     No error
- *      ERR_MEMORY             Dynamic memory management failure
- *      WARN_NO_CMDS           No commands parsed
- *      ERR_TOO_MANY_COMMANDS  too many pipes used
- *
- *   console messages
- *      CMD_WARN_NO_CMD        print on WARN_NO_CMDS
- *      CMD_ERR_PIPE_LIMIT     print on ERR_TOO_MANY_COMMANDS
- *      CMD_ERR_EXECUTE        print on execution failure of external command
- */
 int exec_local_cmd_loop() {
   char *cmd_buff;
   int rc = 0;
   cmd_buff_t cmd;
 
+  int last_rc = 0;
+
   cmd_buff = malloc(SH_CMD_MAX);
+  if (cmd_buff == NULL) {
+    fprintf(stderr, "Memory allocation failed\n");
+    return ERR_MEMORY;
+  }
 
   bool terminate_shell = false;
   while (1) {
@@ -169,44 +159,66 @@ int exec_local_cmd_loop() {
       char *exe = cmd.argv[0];
       if (strcmp(exe, EXIT_CMD) == 0) {
         terminate_shell = true;
+        last_rc = 0;
       } else if (strcmp(exe, "dragon") == 0) {
         print_dragon();
+        last_rc = 0;
       } else if (strcmp(exe, "cd") == 0) {
         if (cmd.argc == 2) {
           if (chdir(cmd.argv[1]) != 0) {
-            // printf(CMD_ERR_EXECUTE);
+            fprintf(stderr, "Error in cd: %s\n", strerror(errno));
+            last_rc = errno;
+          } else {
+            last_rc = 0;
           }
         }
+      } else if (strcmp(exe, "rc") == 0) {
+        printf("%d\n", last_rc);
+        last_rc = 0;
       } else {
         pid_t child = fork();
         switch (child) {
         case -1: {
           // printf(CMD_ERR_EXECUTE);
+          last_rc = errno;
           break;
         }
         case 0: {
           // child
           execvp(cmd.argv[0], cmd.argv);
-
+          int err = errno;
+          switch (err) {
+          case ENOENT: {
+            fprintf(stderr, "Command not found in PATH\n");
+            break;
+          }
+          case EACCES: {
+            fprintf(stderr, "Permission denied\n");
+            break;
+          }
+          default: {
+            fprintf(stderr, "Exectuion error: %s\n", strerror(err));
+            break;
+          }
+          }
           // Would only execute if there was an error
           //  printf(CMD_ERR_EXECUTE);
-          printf("HI");
-          exit(1);
+          exit(err);
         }
         default: {
           // parent
           int status;
-          pid_t end;
-          do {
-            end = waitpid(child, &status, WUNTRACED);
-            if (end == -1) {
-              // Error from waitpid
-              //  printf(CMD_ERR_EXECUTE);
-              break;
+          pid_t end = waitpid(child, &status, 0);
+          if (end == -1) {
+            perror("waitpid");
+            last_rc = errno;
+          } else {
+            if (WIFEXITED(status)) {
+              last_rc = WEXITSTATUS(status);
+            } else if (WIFSIGNALED(status)) {
+              last_rc = WTERMSIG(status);
+              fprintf(stderr, "Child terminated by signal %d\n", last_rc);
             }
-          } while (!WIFEXITED(status) && !WIFSIGNALED(status));
-          if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
-            //  printf(CMD_ERR_EXECUTE);
           }
         }
         }
