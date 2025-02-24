@@ -1,5 +1,4 @@
 #include <assert.h>
-#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
@@ -39,21 +38,26 @@ void remove_whitespace(char *s) {
   }
 }
 
-int process_cmd_buff(char *cmd_line, cmd_buff_t *buf) {
+int process_cmd_buff(char *cmd_line, command_list_t *clist) {
   if (strlen(cmd_line) == 0) {
     return WARN_NO_CMDS;
   }
 
-  assert(buf != NULL);
+  assert(clist != NULL);
 
-  memset(buf, 0, sizeof(*buf));
+  memset(clist, 0, sizeof(*clist));
 
   char *cmd_save;
   char *cmd = strtok_r(cmd_line, PIPE_STRING, &cmd_save);
   while (cmd != NULL) {
-    // if (clist->num == CMD_MAX) {
-    //   return ERR_TOO_MANY_COMMANDS;
-    // }
+    if (clist->num == CMD_MAX) {
+      for (int i = 0; i < clist->num; i++) {
+        for (int j = 0; j < clist->commands[i].argc; j++) {
+          free(clist->commands[i].argv[j]);
+        }
+      }
+      return ERR_TOO_MANY_COMMANDS;
+    }
     remove_whitespace(cmd);
 
     char *next_s = cmd;
@@ -79,12 +83,20 @@ int process_cmd_buff(char *cmd_line, cmd_buff_t *buf) {
 
     if (strlen(exe) >= EXE_MAX ||
         (next_s != NULL && strlen(next_s) >= ARG_MAX)) {
+      for (int i = 0; i < clist->num; i++) {
+        for (int j = 0; j < clist->commands[i].argc; j++) {
+          free(clist->commands[i].argv[j]);
+        }
+      }
       return ERR_CMD_OR_ARGS_TOO_BIG;
     }
 
-    // FIX: when multiple commands are implemented, this needs to change
-    buf->argv[buf->argc++] = strdup(exe);
-    // strcpy(buf->argv[buf->argc], exe);
+    cmd_buff_t buf = {0};
+    char *exe_copy = strdup(exe);
+    if (exe_copy == NULL) {
+      return ERR_MEMORY;
+    }
+    buf.argv[buf.argc++] = exe_copy;
 
     if (next_s != NULL) {
       bool in_quotes = false;
@@ -103,7 +115,20 @@ int process_cmd_buff(char *cmd_line, cmd_buff_t *buf) {
         if (!in_quotes && *next_s == SPACE_CHAR) {
           *write_ptr = '\0';
           if (arg_start != write_ptr) {
-            buf->argv[buf->argc++] = strdup(arg_start);
+            if (buf.argc >= ARG_MAX - 1) {
+              for (int i = 0; i < buf.argc; i++) {
+                free(buf.argv[i]);
+              }
+              return ERR_CMD_OR_ARGS_TOO_BIG;
+            }
+            char *arg_copy = strdup(arg_start);
+            if (arg_copy == NULL) {
+              for (int i = 0; i < buf.argc; i++) {
+                free(buf.argv[i]);
+              }
+              return ERR_MEMORY;
+            }
+            buf.argv[buf.argc++] = arg_copy;
           }
 
           next_s++;
@@ -124,18 +149,104 @@ int process_cmd_buff(char *cmd_line, cmd_buff_t *buf) {
 
       *write_ptr = '\0';
       if (arg_start != write_ptr) {
-        buf->argv[buf->argc++] = strdup(arg_start);
+
+        if (buf.argc >= ARG_MAX - 1) {
+          for (int i = 0; i < buf.argc; i++) {
+            free(buf.argv[i]);
+          }
+          return ERR_CMD_OR_ARGS_TOO_BIG;
+        }
+        char *arg_copy = strdup(arg_start);
+        if (arg_copy == NULL) {
+          for (int i = 0; i < buf.argc; i++) {
+            free(buf.argv[i]);
+          }
+          return ERR_MEMORY;
+        }
+        buf.argv[buf.argc++] = arg_copy;
       }
     }
+    buf.argv[buf.argc] = NULL;
+    memcpy(&clist->commands[clist->num++], &buf, sizeof(buf));
     cmd = strtok_r(NULL, PIPE_STRING, &cmd_save);
   }
   return OK;
 }
 
+void exec_command(int argc, char **argv, int *last_rc, bool *terminate_shell) {
+  char *exe = argv[0];
+  if (strcmp(exe, EXIT_CMD) == 0) {
+    *terminate_shell = true;
+  } else if (strcmp(exe, "dragon") == 0) {
+    print_dragon();
+  } else if (strcmp(exe, "cd") == 0) {
+    if (argc == 2) {
+      if (chdir(argv[1]) != 0) {
+        fprintf(stderr, "Error in cd: %s\n", strerror(errno));
+        *last_rc = errno;
+        return;
+      }
+    }
+  } else if (strcmp(exe, "rc") == 0) {
+    printf("%d\n", *last_rc);
+  } else {
+    pid_t child = fork();
+    switch (child) {
+    case -1: {
+      // printf(CMD_ERR_EXECUTE);
+      *last_rc = errno;
+      return;
+    }
+    case 0: {
+      // child
+      execvp(exe, argv);
+      int err = errno;
+      switch (err) {
+      case ENOENT: {
+        fprintf(stderr, "Command not found in PATH\n");
+        break;
+      }
+      case EACCES: {
+        fprintf(stderr, "Permission denied\n");
+        break;
+      }
+      default: {
+        fprintf(stderr, "Exectuion error: %s\n", strerror(err));
+        break;
+      }
+      }
+      // Would only execute if there was an error
+      //  printf(CMD_ERR_EXECUTE);
+      exit(err);
+    }
+    default: {
+      // parent
+      int status;
+      pid_t end = waitpid(child, &status, 0);
+      if (end == -1) {
+        perror("waitpid");
+        *last_rc = errno;
+        return;
+      } else {
+        if (WIFEXITED(status)) {
+          *last_rc = WEXITSTATUS(status);
+          return;
+        } else if (WIFSIGNALED(status)) {
+          *last_rc = WTERMSIG(status);
+          fprintf(stderr, "Child terminated by signal %d\n", *last_rc);
+          return;
+        }
+      }
+    }
+    }
+  }
+  *last_rc = OK;
+}
+
 int exec_local_cmd_loop() {
   char *cmd_buff;
   int rc = 0;
-  cmd_buff_t cmd;
+  command_list_t clist;
 
   int last_rc = 0;
 
@@ -148,90 +259,34 @@ int exec_local_cmd_loop() {
   bool terminate_shell = false;
   while (1) {
     printf("%s", SH_PROMPT);
-    if (fgets(cmd_buff, ARG_MAX, stdin) == NULL) {
+    if (fgets(cmd_buff, SH_CMD_MAX, stdin) == NULL) {
       printf("\n");
       break;
     }
     cmd_buff[strcspn(cmd_buff, "\n")] = '\0';
 
-    rc = process_cmd_buff(cmd_buff, &cmd);
+    rc = process_cmd_buff(cmd_buff, &clist);
 
     switch (rc) {
     case OK: {
-      char *exe = cmd.argv[0];
-      if (strcmp(exe, EXIT_CMD) == 0) {
-        terminate_shell = true;
-        last_rc = 0;
-      } else if (strcmp(exe, "dragon") == 0) {
-        print_dragon();
-        last_rc = 0;
-      } else if (strcmp(exe, "cd") == 0) {
-        if (cmd.argc == 2) {
-          if (chdir(cmd.argv[1]) != 0) {
-            fprintf(stderr, "Error in cd: %s\n", strerror(errno));
-            last_rc = errno;
-          } else {
-            last_rc = 0;
-          }
+      printf(CMD_OK_HEADER, clist.num);
+      for (int i = 0; i < clist.num; i++) {
+        int argc = clist.commands[i].argc;
+        char **argv = clist.commands[i].argv;
+        exec_command(argc, argv, &last_rc, &terminate_shell);
+
+        for (int j = 0; j < argc; j++) {
+          free(argv[j]);
         }
-      } else if (strcmp(exe, "rc") == 0) {
-        printf("%d\n", last_rc);
-        last_rc = 0;
-      } else {
-        pid_t child = fork();
-        switch (child) {
-        case -1: {
-          // printf(CMD_ERR_EXECUTE);
-          last_rc = errno;
-          break;
-        }
-        case 0: {
-          // child
-          execvp(cmd.argv[0], cmd.argv);
-          int err = errno;
-          switch (err) {
-          case ENOENT: {
-            fprintf(stderr, "Command not found in PATH\n");
-            break;
-          }
-          case EACCES: {
-            fprintf(stderr, "Permission denied\n");
-            break;
-          }
-          default: {
-            fprintf(stderr, "Exectuion error: %s\n", strerror(err));
-            break;
-          }
-          }
-          // Would only execute if there was an error
-          //  printf(CMD_ERR_EXECUTE);
-          exit(err);
-        }
-        default: {
-          // parent
-          int status;
-          pid_t end = waitpid(child, &status, 0);
-          if (end == -1) {
-            perror("waitpid");
-            last_rc = errno;
-          } else {
-            if (WIFEXITED(status)) {
-              last_rc = WEXITSTATUS(status);
-            } else if (WIFSIGNALED(status)) {
-              last_rc = WTERMSIG(status);
-              fprintf(stderr, "Child terminated by signal %d\n", last_rc);
-            }
-          }
-        }
-        }
-      }
-      for (int i = 0; i < cmd.argc; i++) {
-        free(cmd.argv[i]);
       }
       break;
     }
     case WARN_NO_CMDS: {
       printf(CMD_WARN_NO_CMD);
+      break;
+    }
+    case ERR_TOO_MANY_COMMANDS: {
+      printf(CMD_ERR_PIPE_LIMIT, CMD_MAX);
       break;
     }
     }

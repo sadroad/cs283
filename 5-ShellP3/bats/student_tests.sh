@@ -88,7 +88,7 @@ rc
 exit
 EOF
   [ "$status" -eq 0 ]
-  echo "$output" | grep -E "dsh3> dsh3> 0$"
+  echo "$output" | grep -E "^0$"
 }
 
 @test "rc built-in returns error after failing command" {

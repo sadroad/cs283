@@ -1,6 +1,6 @@
 # Compiler settings
 CC = gcc
-CFLAGS = -Wall -Wextra -g
+CFLAGS = -Wall -Wextra -g -fanalyzer
 
 # Target executable name
 TARGET = dsh
@@ -26,7 +26,7 @@ $(TARGET): $(SRCS) $(HDRS) create_dragon
 clean:
 	rm -f $(TARGET)
 
-test:
+test: $(TARGET)
 	bats $(wildcard ./bats/*.sh)
 
 valgrind:
