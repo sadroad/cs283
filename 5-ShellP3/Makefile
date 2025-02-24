@@ -9,12 +9,18 @@ TARGET = dsh
 SRCS = $(wildcard *.c)
 HDRS = $(wildcard *.h)
 
+DRAGON_FILE = dragon.bin
+
 # Default target
 all: $(TARGET)
 
+create_dragon: $(DRAGON_FILE)
+	ld -r -b binary -o dragon.o $(DRAGON_FILE)
+
 # Compile source to executable
-$(TARGET): $(SRCS) $(HDRS)
-	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS)
+$(TARGET): $(SRCS) $(HDRS) create_dragon
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS) dragon.o
+	rm -f dragon.o
 
 # Clean up build files
 clean:
