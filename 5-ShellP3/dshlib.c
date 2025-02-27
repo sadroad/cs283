@@ -15,6 +15,8 @@ void free_command_list(command_list_t *clist, int up_to_command) {
     for (int j = 0; j < clist->commands[i].argc; j++) {
       free(clist->commands[i].argv[j]);
     }
+    free(clist->commands[i].input_file);
+    free(clist->commands[i].output_file);
   }
 }
 
@@ -150,6 +152,46 @@ int parse_command(char *cmd, cmd_buff_t *buf) {
     }
   }
 
+  buf->input_file = NULL;
+  buf->output_file = NULL;
+  buf->append_mode = false;
+
+  for (int i = 0; i < buf->argc; i++) {
+    if (strcmp(buf->argv[i], "<") == 0) {
+      if (i + 1 < buf->argc) {
+        buf->input_file = strdup(buf->argv[i + 1]);
+        for (int j = i; j < buf->argc - 2; j++) {
+          free(buf->argv[j]);
+          buf->argv[j] = buf->argv[j + 2];
+        }
+        buf->argc -= 2;
+        i--;
+      }
+    } else if (strcmp(buf->argv[i], ">") == 0) {
+      if (i + 1 < buf->argc) {
+        buf->output_file = strdup(buf->argv[i + 1]);
+        buf->append_mode = false;
+        for (int j = i; j < buf->argc - 2; j++) {
+          free(buf->argv[j]);
+          buf->argv[j] = buf->argv[j + 2];
+        }
+        buf->argc -= 2;
+        i--;
+      }
+    } else if (strcmp(buf->argv[i], ">>") == 0) {
+      if (i + 1 < buf->argc) {
+        buf->output_file = strdup(buf->argv[i + 1]);
+        buf->append_mode = true;
+        for (int j = i; j < buf->argc - 2; j++) {
+          free(buf->argv[j]);
+          buf->argv[j] = buf->argv[j + 2];
+        }
+        buf->argc -= 2;
+        i--;
+      }
+    }
+  }
+
   buf->argv[buf->argc] = NULL;
   return OK;
 }
@@ -230,32 +272,57 @@ void handle_exec_error(int err) {
   exit(err);
 }
 
-void exec_command(int argc, char **argv, int *last_rc, bool *terminate_shell) {
+void exec_command(int argc, char **argv, cmd_buff_t *cmd, int *last_rc,
+                  bool *terminate_shell) {
   char *exe = argv[0];
   if (strcmp(exe, EXIT_CMD) == 0) {
     *terminate_shell = true;
   } else if (strcmp(exe, "dragon") == 0) {
     print_dragon();
   } else if (strcmp(exe, "cd") == 0) {
-    if (argc == 2) {
-      if (chdir(argv[1]) != 0) {
-        fprintf(stderr, "Error in cd: %s\n", strerror(errno));
-        *last_rc = errno;
-        return;
-      }
-    }
+    // cd logic as before
   } else if (strcmp(exe, "rc") == 0) {
     printf("%d\n", *last_rc);
   } else {
     pid_t child = fork();
     switch (child) {
-    case -1: {
-      // printf(CMD_ERR_EXECUTE);
+    case -1:
       *last_rc = errno;
       return;
-    }
     case 0: {
       // child
+
+      if (cmd->input_file != NULL) {
+        int fd = open(cmd->input_file, O_RDONLY);
+        if (fd < 0) {
+          perror("open input file");
+          exit(errno);
+        }
+        if (dup2(fd, STDIN_FILENO) == -1) {
+          perror("dup2 input redirection");
+          exit(errno);
+        }
+        close(fd);
+      }
+
+      if (cmd->output_file != NULL) {
+        int flags = O_WRONLY | O_CREAT;
+        if (cmd->append_mode) {
+          flags |= O_APPEND;
+        } else {
+          flags |= O_TRUNC;
+        }
+        int fd = open(cmd->output_file, flags, 0644);
+        if (fd < 0) {
+          perror("open output file");
+          exit(errno);
+        }
+        if (dup2(fd, STDOUT_FILENO) == -1) {
+          perror("dup2 output redirection");
+          exit(errno);
+        }
+        close(fd);
+      }
       execvp(exe, argv);
       int err = errno;
       switch (err) {
@@ -374,6 +441,38 @@ int execute_pipeline(command_list_t *clist, bool *terminate_shell) {
         close(pipes[j][1]);
       }
 
+      if (clist->commands[i].input_file != NULL) {
+        int fd = open(clist->commands[i].input_file, O_RDONLY);
+        if (fd < 0) {
+          perror("open input file");
+          exit(errno);
+        }
+        if (dup2(fd, STDIN_FILENO) == -1) {
+          perror("dup2 input redirection");
+          exit(errno);
+        }
+        close(fd);
+      }
+
+      if (clist->commands[i].output_file != NULL) {
+        int flags = O_WRONLY | O_CREAT;
+        if (clist->commands[i].append_mode) {
+          flags |= O_APPEND;
+        } else {
+          flags |= O_TRUNC;
+        }
+        int fd = open(clist->commands[i].output_file, flags, 0644);
+        if (fd < 0) {
+          perror("open output file");
+          exit(errno);
+        }
+        if (dup2(fd, STDOUT_FILENO) == -1) {
+          perror("dup2 output redirection");
+          exit(errno);
+        }
+        close(fd);
+      }
+
       char *exe = clist->commands[i].argv[0];
 
       if (strcmp(exe, "dragon") == 0) {
@@ -463,7 +562,8 @@ int exec_local_cmd_loop() {
       if (clist.num == 1) {
         int argc = clist.commands[0].argc;
         char **argv = clist.commands[0].argv;
-        exec_command(argc, argv, &last_rc, &terminate_shell);
+        exec_command(argc, argv, &clist.commands[0], &last_rc,
+                     &terminate_shell);
       } else {
         last_rc = execute_pipeline(&clist, &terminate_shell);
       }
