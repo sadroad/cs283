@@ -1,6 +1,6 @@
 # Compiler settings
 CC = gcc
-CFLAGS = -Wall -Wextra -g -fanalyzer
+CFLAGS = -Wall -Wextra -g
 
 # Target executable name
 TARGET = dsh

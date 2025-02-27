@@ -1,5 +1,6 @@
 #ifndef __DSHLIB_H__
 #define __DSHLIB_H__
+#include <stdbool.h>
 
 // Constants for command structure sizes
 #define EXE_MAX 64
@@ -81,7 +82,7 @@ Built_In_Cmds exec_built_in_cmd(cmd_buff_t *cmd);
 // main execution context
 int exec_local_cmd_loop();
 int exec_cmd(cmd_buff_t *cmd);
-int execute_pipeline(command_list_t *clist);
+int execute_pipeline(command_list_t *clist, bool *terminate_shell);
 
 // output constants
 #define CMD_OK_HEADER "PARSED COMMAND LINE - TOTAL COMMANDS %d\n"
