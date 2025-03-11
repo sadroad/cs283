@@ -1,5 +1,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <netinet/in.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +17,14 @@
 
 #include "dshlib.h"
 #include "rshlib.h"
+
+#ifdef DEBUG
+#define DEBUG_SOCKET_REUSE                                                     \
+  int enable = 1;                                                              \
+  setsockopt(svr_socket, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+#else
+#define DEBUG_SOCKET_REUSE
+#endif
 
 /*
  * start_server(ifaces, port, is_threaded)
@@ -109,7 +119,41 @@ int stop_server(int svr_socket) { return close(svr_socket); }
  *                               bind(), or listen() call fails.
  *
  */
-int boot_server(char *ifaces, int port) { return WARN_RDSH_NOT_IMPL; }
+int boot_server(char *ifaces, int port) {
+  int svr_socket = socket(AF_INET, SOCK_STREAM, 0);
+  if (svr_socket == -1) {
+    return ERR_RDSH_COMMUNICATION;
+  }
+
+  DEBUG_SOCKET_REUSE;
+
+  struct sockaddr_in addr;
+
+  addr.sin_family = AF_INET;
+
+  int result = inet_pton(AF_INET, ifaces, &(addr.sin_addr));
+
+  if (result != 1) {
+    perror("Bad ip format");
+    return ERR_RDSH_COMMUNICATION;
+  }
+
+  addr.sin_addr.s_addr = htonl(addr.sin_addr.s_addr);
+  addr.sin_port = htons(port);
+
+  result = bind(svr_socket, (const struct sockaddr *)&addr,
+                sizeof(struct sockaddr_in));
+  if (result == -1) {
+    return ERR_RDSH_COMMUNICATION;
+  }
+
+  result = listen(svr_socket, 20);
+  if (result == -1) {
+    return ERR_RDSH_COMMUNICATION;
+  }
+
+  return svr_socket;
+}
 
 /*
  * process_cli_requests(svr_socket)
@@ -152,7 +196,21 @@ int boot_server(char *ifaces, int port) { return WARN_RDSH_NOT_IMPL; }
  *                connections, and negative values terminate the server.
  *
  */
-int process_cli_requests(int svr_socket) { return WARN_RDSH_NOT_IMPL; }
+int process_cli_requests(int svr_socket) {
+  int result;
+  while (true) {
+    int cli_socket = accept(svr_socket, NULL, NULL);
+    if (cli_socket < 0) {
+      return ERR_RDSH_COMMUNICATION;
+    }
+    result = exec_client_requests(cli_socket);
+    close(cli_socket);
+    if (result < 0) {
+      break;
+    }
+  }
+  return result;
+}
 
 /*
  * exec_client_requests(cli_socket)
@@ -195,7 +253,36 @@ int process_cli_requests(int svr_socket) { return WARN_RDSH_NOT_IMPL; }
  *      ERR_RDSH_COMMUNICATION:  A catch all for any socket() related send
  *                or receive errors.
  */
-int exec_client_requests(int cli_socket) { return WARN_RDSH_NOT_IMPL; }
+int exec_client_requests(int cli_socket) {
+  char *buff = malloc(RDSH_COMM_BUFF_SZ);
+  if (!buff) {
+    return ERR_RDSH_COMMUNICATION;
+  }
+
+  while (true) {
+    int bytes_received = recv(cli_socket, buff, RDSH_COMM_BUFF_SZ, 0);
+    if (bytes_received <= 0) {
+      free(buff);
+      return ERR_RDSH_COMMUNICATION;
+    }
+
+    if (strcmp(buff, "stop-server") == 0) {
+      free(buff);
+      return OK_EXIT;
+    } else if (strcmp(buff, "exit") == 0) {
+      free(buff);
+      return OK;
+    }
+
+    // TODO: Add command execution logic here
+    printf("%s\n", buff);
+
+    if (send_message_eof(cli_socket) != OK) {
+      free(buff);
+      return ERR_RDSH_COMMUNICATION;
+    }
+  }
+}
 
 /*
  * send_message_eof(cli_socket)
@@ -211,7 +298,13 @@ int exec_client_requests(int cli_socket) { return WARN_RDSH_NOT_IMPL; }
  *      ERR_RDSH_COMMUNICATION:  The send() socket call returned an error or if
  *           we were unable to send the EOF character.
  */
-int send_message_eof(int cli_socket) { return WARN_RDSH_NOT_IMPL; }
+int send_message_eof(int cli_socket) {
+  int result = send(cli_socket, &RDSH_EOF_CHAR, 1, 0);
+  if (result == -1) {
+    return ERR_RDSH_COMMUNICATION;
+  }
+  return OK;
+}
 
 /*
  * send_message_string(cli_socket, char *buff)
@@ -232,7 +325,11 @@ int send_message_eof(int cli_socket) { return WARN_RDSH_NOT_IMPL; }
  *           we were unable to send the message followed by the EOF character.
  */
 int send_message_string(int cli_socket, char *buff) {
-  return WARN_RDSH_NOT_IMPL;
+  int result = send(cli_socket, &buff, strlen(buff) + 1, 0);
+  if (result == -1) {
+    return ERR_RDSH_COMMUNICATION;
+  }
+  return send_message_eof(cli_socket);
 }
 
 /*

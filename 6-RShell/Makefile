@@ -22,6 +22,10 @@ $(TARGET): $(SRCS) $(HDRS) create_dragon
 	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS) dragon.o
 	rm -f dragon.o
 
+dev: $(SRCS) $(HDRS) create_dragon
+	$(CC) $(CFLAGS) -DDEBUG -o $(TARGET) $(SRCS) dragon.o
+	rm -f dragon.o
+
 # Clean up build files
 clean:
 	rm -f $(TARGET)
