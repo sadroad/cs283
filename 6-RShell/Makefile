@@ -26,7 +26,7 @@ $(TARGET): $(SRCS) $(HDRS) create_dragon
 clean:
 	rm -f $(TARGET)
 
-test:
+test: $(TARGET)
 	bats $(wildcard ./bats/*.sh)
 
 valgrind:
