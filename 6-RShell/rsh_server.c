@@ -266,6 +266,17 @@ int exec_client_requests(int cli_socket) {
       return ERR_RDSH_COMMUNICATION;
     }
 
+    if (bytes_received < RDSH_COMM_BUFF_SZ) {
+      buff[bytes_received] = '\0';
+    }
+
+    size_t len = strlen(buff);
+    if (len > 0 && buff[len - 1] == '\n') {
+      buff[len - 1] = '\0';
+    }
+
+    buff[bytes_received - 1] = '\0';
+
     if (strcmp(buff, "stop-server") == 0) {
       free(buff);
       return OK_EXIT;
@@ -275,7 +286,6 @@ int exec_client_requests(int cli_socket) {
     }
 
     // TODO: Add command execution logic here
-    printf("%s\n", buff);
 
     if (send_message_eof(cli_socket) != OK) {
       free(buff);
@@ -325,7 +335,7 @@ int send_message_eof(int cli_socket) {
  *           we were unable to send the message followed by the EOF character.
  */
 int send_message_string(int cli_socket, char *buff) {
-  int result = send(cli_socket, &buff, strlen(buff) + 1, 0);
+  int result = send(cli_socket, buff, strlen(buff), 0);
   if (result == -1) {
     return ERR_RDSH_COMMUNICATION;
   }

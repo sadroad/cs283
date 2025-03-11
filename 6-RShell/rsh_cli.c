@@ -88,7 +88,55 @@
  * client_cleanup()
  *
  */
-int exec_remote_cmd_loop(char *address, int port) { return WARN_RDSH_NOT_IMPL; }
+int exec_remote_cmd_loop(char *address, int port) {
+  char *request_buff = malloc(RDSH_COMM_BUFF_SZ);
+  char *resp_buff = malloc(RDSH_COMM_BUFF_SZ);
+
+  if (!request_buff || !resp_buff) {
+    return client_cleanup(-1, request_buff, resp_buff, ERR_MEMORY);
+  }
+
+  int cli_socket = start_client(address, port);
+  if (cli_socket < 0) {
+    return client_cleanup(cli_socket, request_buff, resp_buff, ERR_RDSH_CLIENT);
+  }
+
+  while (1) {
+    printf("$ ");
+    if (fgets(request_buff, RDSH_COMM_BUFF_SZ, stdin) == NULL) {
+      break;
+    }
+
+    ssize_t send_bytes =
+        send(cli_socket, request_buff, strlen(request_buff) + 1, 0);
+    if (send_bytes < 0) {
+      return client_cleanup(cli_socket, request_buff, resp_buff,
+                            ERR_RDSH_COMMUNICATION);
+    }
+
+    while (1) {
+      ssize_t recv_bytes = recv(cli_socket, resp_buff, RDSH_COMM_BUFF_SZ, 0);
+
+      if (recv_bytes < 0) {
+        return client_cleanup(cli_socket, request_buff, resp_buff,
+                              ERR_RDSH_COMMUNICATION);
+      } else if (recv_bytes == 0) {
+        return client_cleanup(cli_socket, request_buff, resp_buff,
+                              ERR_RDSH_COMMUNICATION);
+      } else {
+        printf("%.*s", (int)recv_bytes, resp_buff);
+
+        int is_eof = (resp_buff[recv_bytes - 1] == RDSH_EOF_CHAR) ? 1 : 0;
+        if (is_eof) {
+          break;
+        }
+      }
+    }
+  }
+
+  // Normal termination
+  return client_cleanup(cli_socket, request_buff, resp_buff, OK);
+}
 
 /*
  * start_client(server_ip, port)
@@ -113,7 +161,31 @@ int exec_remote_cmd_loop(char *address, int port) { return WARN_RDSH_NOT_IMPL; }
  *          ERR_RDSH_CLIENT:    If socket() or connect() fail
  *
  */
-int start_client(char *server_ip, int port) { return WARN_RDSH_NOT_IMPL; }
+int start_client(char *server_ip, int port) {
+  int client_socket;
+  struct sockaddr_in server_addr;
+
+  client_socket = socket(AF_INET, SOCK_STREAM, 0);
+  if (client_socket < 0) {
+    return ERR_RDSH_CLIENT;
+  }
+
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = htons(port);
+
+  if (inet_pton(AF_INET, server_ip, &server_addr.sin_addr) <= 0) {
+    close(client_socket);
+    return ERR_RDSH_CLIENT;
+  }
+
+  if (connect(client_socket, (struct sockaddr *)&server_addr,
+              sizeof(server_addr)) < 0) {
+    close(client_socket);
+    return ERR_RDSH_CLIENT;
+  }
+
+  return client_socket;
+}
 
 /*
  * client_cleanup(int cli_socket, char *cmd_buff, char *rsp_buff, int rc)
