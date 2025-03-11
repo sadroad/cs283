@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <stdbool.h>
@@ -94,8 +95,8 @@ int stop_server(int svr_socket) { return close(svr_socket); }
  *      This function "boots" the rsh server.  It is responsible for all
  *      socket operations prior to accepting client connections.  Specifically:
  *
- *      1. Create the server socket using the socket() function.
- *      2. Calling bind to "bind" the server to the interface and port
+ *      1. Create the server socket using the socket() function. 2. Calling bind
+ * to "bind" the server to the interface and port
  *      3. Calling listen to get the server ready to listen for connections.
  *
  *      after creating the socket and prior to calling bind you might want to
@@ -259,6 +260,10 @@ int exec_client_requests(int cli_socket) {
     return ERR_RDSH_COMMUNICATION;
   }
 
+  command_list_t clist;
+  bool terminate_shell = false;
+  int rc = 0;
+
   while (true) {
     int bytes_received = recv(cli_socket, buff, RDSH_COMM_BUFF_SZ, 0);
     if (bytes_received <= 0) {
@@ -278,20 +283,133 @@ int exec_client_requests(int cli_socket) {
     buff[bytes_received - 1] = '\0';
 
     if (strcmp(buff, "stop-server") == 0) {
+      send_message_string(cli_socket, "Server shutting down...\n");
       free(buff);
       return OK_EXIT;
     } else if (strcmp(buff, "exit") == 0) {
+      send_message_string(cli_socket, "Connection closed\n");
       free(buff);
       return OK;
+    } else if (strcmp(buff, "dragon") == 0) {
+      int stdout_backup = dup(STDOUT_FILENO);
+      int pipe_fds[2];
+      pipe(pipe_fds);
+      dup2(pipe_fds[1], STDOUT_FILENO);
+      close(pipe_fds[1]);
+
+      print_dragon();
+      fflush(stdout);
+
+      dup2(stdout_backup, STDOUT_FILENO);
+      close(stdout_backup);
+
+      char dragon_buff[RDSH_COMM_BUFF_SZ];
+      int bytes_read = read(pipe_fds[0], dragon_buff, RDSH_COMM_BUFF_SZ - 1);
+      close(pipe_fds[0]);
+
+      if (bytes_read > 0) {
+        dragon_buff[bytes_read] = '\0';
+        send(cli_socket, dragon_buff, bytes_read, 0);
+      }
+
+      if (send_message_eof(cli_socket) != OK) {
+        free(buff);
+        return ERR_RDSH_COMMUNICATION;
+      }
+      continue;
     }
 
-    // TODO: Add command execution logic here
+    rc = process_cmd_buff(buff, &clist);
 
+    if (rc == WARN_NO_CMDS) {
+      send_message_string(cli_socket, CMD_WARN_NO_CMD);
+      continue;
+    } else if (rc == ERR_TOO_MANY_COMMANDS) {
+      char error_msg[100];
+      snprintf(error_msg, sizeof(error_msg), CMD_ERR_PIPE_LIMIT, CMD_MAX);
+      send_message_string(cli_socket, error_msg);
+      continue;
+    } else if (rc != OK) {
+      send_message_string(cli_socket, "Command parsing error\n");
+      continue;
+    }
+
+    // Fork and execute the command, capturing output
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+      send_message_string(cli_socket, "Failed to create pipe\n");
+      continue;
+    }
+
+    pid_t pid = fork();
+    if (pid == -1) {
+      close(pipefd[0]);
+      close(pipefd[1]);
+      send_message_string(cli_socket, "Failed to fork process\n");
+      continue;
+    }
+
+    if (pid == 0) {
+      // Child process
+      close(pipefd[0]); // Close read end
+
+      // Redirect stdout and stderr to the pipe
+      dup2(pipefd[1], STDOUT_FILENO);
+      dup2(pipefd[1], STDERR_FILENO);
+      close(pipefd[1]);
+
+      // Execute the command
+      if (clist.num == 1) {
+        // Handle built-in commands like cd
+        if (strcmp(clist.commands[0].argv[0], "cd") == 0) {
+          if (clist.commands[0].argc > 1) {
+            if (chdir(clist.commands[0].argv[1]) != 0) {
+              fprintf(stderr, "cd: %s: %s\n", clist.commands[0].argv[1],
+                      strerror(errno));
+              exit(1);
+            }
+          }
+          exit(0);
+        } else {
+          execvp(clist.commands[0].argv[0], clist.commands[0].argv);
+          fprintf(stderr, "Command execution failed: %s\n", strerror(errno));
+          exit(1);
+        }
+      } else {
+        // Handle pipelines
+        // For this implementation, we'll focus on single commands first
+        fprintf(stderr, "Pipeline execution not yet implemented\n");
+        exit(1);
+      }
+    }
+
+    // Parent process
+    close(pipefd[1]); // Close write end
+
+    // Read from pipe and send to client
+    char output_buff[RDSH_COMM_BUFF_SZ];
+    ssize_t n;
+    while ((n = read(pipefd[0], output_buff, sizeof(output_buff) - 1)) > 0) {
+      output_buff[n] = '\0';
+      if (send(cli_socket, output_buff, n, 0) < 0) {
+        break;
+      }
+    }
+    close(pipefd[0]);
+
+    // Wait for the child to finish
+    int status;
+    waitpid(pid, &status, 0);
+
+    // Send EOF to client
     if (send_message_eof(cli_socket) != OK) {
       free(buff);
       return ERR_RDSH_COMMUNICATION;
     }
   }
+
+  free(buff);
+  return OK;
 }
 
 /*

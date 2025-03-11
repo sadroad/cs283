@@ -61,6 +61,8 @@ int build_cmd_buff(char *cmd_line, cmd_buff_t *cmd_buff);
 int close_cmd_buff(cmd_buff_t *cmd_buff);
 int build_cmd_list(char *cmd_line, command_list_t *clist);
 int free_cmd_list(command_list_t *cmd_lst);
+int process_cmd_buff(char *cmd_line, command_list_t *clist);
+
 void print_dragon();
 
 // built in command stuff
