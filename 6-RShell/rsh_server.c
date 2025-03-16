@@ -334,32 +334,78 @@ int exec_client_requests(int cli_socket) {
       continue;
     }
 
-    // Fork and execute the command, capturing output
-    int pipefd[2];
-    if (pipe(pipefd) == -1) {
-      send_message_string(cli_socket, "Failed to create pipe\n");
-      continue;
-    }
+    // MODIFIED: Execute pipeline if multiple commands, otherwise use standard
+    // handling
+    if (clist.num > 1) {
+      // Use our new pipeline implementation
+      int stdout_backup = dup(STDOUT_FILENO);
+      int stderr_backup = dup(STDERR_FILENO);
 
-    pid_t pid = fork();
-    if (pid == -1) {
-      close(pipefd[0]);
-      close(pipefd[1]);
-      send_message_string(cli_socket, "Failed to fork process\n");
-      continue;
-    }
+      // Create pipe to capture output
+      int pipe_fds[2];
+      if (pipe(pipe_fds) == -1) {
+        send_message_string(cli_socket, "Failed to create output pipe\n");
+        continue;
+      }
 
-    if (pid == 0) {
-      // Child process
-      close(pipefd[0]); // Close read end
+      // Redirect stdout and stderr to pipe
+      dup2(pipe_fds[1], STDOUT_FILENO);
+      dup2(pipe_fds[1], STDERR_FILENO);
+      close(pipe_fds[1]);
 
-      // Redirect stdout and stderr to the pipe
-      dup2(pipefd[1], STDOUT_FILENO);
-      dup2(pipefd[1], STDERR_FILENO);
-      close(pipefd[1]);
+      // Execute the pipeline
+      rsh_execute_pipeline(pipe_fds[1], &clist);
 
-      // Execute the command
-      if (clist.num == 1) {
+      // Restore stdout and stderr
+      dup2(stdout_backup, STDOUT_FILENO);
+      dup2(stderr_backup, STDERR_FILENO);
+      close(stdout_backup);
+      close(stderr_backup);
+
+      // Send captured output to client
+      char output_buff[RDSH_COMM_BUFF_SZ];
+      ssize_t bytes_read;
+      while ((bytes_read = read(pipe_fds[0], output_buff,
+                                sizeof(output_buff) - 1)) > 0) {
+        output_buff[bytes_read] = '\0';
+        if (send(cli_socket, output_buff, bytes_read, 0) < 0) {
+          break;
+        }
+      }
+      close(pipe_fds[0]);
+
+      // Send EOF to client
+      if (send_message_eof(cli_socket) != OK) {
+        free(buff);
+        return ERR_RDSH_COMMUNICATION;
+      }
+    } else {
+      // Single command - use existing handler
+      // [keep existing code for single command execution]
+      // Fork and execute the command, capturing output
+      int pipefd[2];
+      if (pipe(pipefd) == -1) {
+        send_message_string(cli_socket, "Failed to create pipe\n");
+        continue;
+      }
+
+      pid_t pid = fork();
+      if (pid == -1) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        send_message_string(cli_socket, "Failed to fork process\n");
+        continue;
+      }
+
+      if (pid == 0) {
+        // Child process
+        close(pipefd[0]); // Close read end
+
+        // Redirect stdout and stderr to the pipe
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
+
         // Handle built-in commands like cd
         if (strcmp(clist.commands[0].argv[0], "cd") == 0) {
           if (clist.commands[0].argc > 1) {
@@ -375,36 +421,40 @@ int exec_client_requests(int cli_socket) {
           fprintf(stderr, "Command execution failed: %s\n", strerror(errno));
           exit(1);
         }
-      } else {
-        // Handle pipelines
-        // For this implementation, we'll focus on single commands first
-        fprintf(stderr, "Pipeline execution not yet implemented\n");
-        exit(1);
+      }
+
+      // Parent process
+      close(pipefd[1]); // Close write end
+
+      // Read from pipe and send to client
+      char output_buff[RDSH_COMM_BUFF_SZ];
+      ssize_t n;
+      while ((n = read(pipefd[0], output_buff, sizeof(output_buff) - 1)) > 0) {
+        output_buff[n] = '\0';
+        if (send(cli_socket, output_buff, n, 0) < 0) {
+          break;
+        }
+      }
+      close(pipefd[0]);
+
+      // Wait for the child to finish
+      int status;
+      waitpid(pid, &status, 0);
+
+      // Send EOF to client
+      if (send_message_eof(cli_socket) != OK) {
+        free(buff);
+        return ERR_RDSH_COMMUNICATION;
       }
     }
 
-    // Parent process
-    close(pipefd[1]); // Close write end
-
-    // Read from pipe and send to client
-    char output_buff[RDSH_COMM_BUFF_SZ];
-    ssize_t n;
-    while ((n = read(pipefd[0], output_buff, sizeof(output_buff) - 1)) > 0) {
-      output_buff[n] = '\0';
-      if (send(cli_socket, output_buff, n, 0) < 0) {
-        break;
+    // Clean up command list
+    for (int i = 0; i < clist.num; i++) {
+      for (int j = 0; j < clist.commands[i].argc; j++) {
+        free(clist.commands[i].argv[j]);
       }
-    }
-    close(pipefd[0]);
-
-    // Wait for the child to finish
-    int status;
-    waitpid(pid, &status, 0);
-
-    // Send EOF to client
-    if (send_message_eof(cli_socket) != OK) {
-      free(buff);
-      return ERR_RDSH_COMMUNICATION;
+      free(clist.commands[i].input_file);
+      free(clist.commands[i].output_file);
     }
   }
 
@@ -499,7 +549,149 @@ int send_message_string(int cli_socket, char *buff) {
  *                  get this value.
  */
 int rsh_execute_pipeline(int cli_sock, command_list_t *clist) {
-  return WARN_RDSH_NOT_IMPL;
+  int pipes[CMD_MAX - 1][2];
+  pid_t pids[CMD_MAX];
+  int status, last_rc = 0;
+
+  // Create necessary pipes
+  for (int i = 0; i < clist->num - 1; i++) {
+    if (pipe(pipes[i]) == -1) {
+      perror("pipe");
+      return ERR_RDSH_CMD_EXEC;
+    }
+  }
+
+  // Fork and execute each command in the pipeline
+  for (int i = 0; i < clist->num; i++) {
+    pids[i] = fork();
+
+    if (pids[i] < 0) {
+      perror("fork");
+      // Close all pipes
+      for (int j = 0; j < clist->num - 1; j++) {
+        close(pipes[j][0]);
+        close(pipes[j][1]);
+      }
+      return ERR_RDSH_CMD_EXEC;
+    }
+
+    if (pids[i] == 0) {
+      // Child process
+
+      // Setup stdin from previous pipe (except for first command)
+      if (i > 0) {
+        if (dup2(pipes[i - 1][0], STDIN_FILENO) == -1) {
+          perror("dup2 stdin");
+          exit(1);
+        }
+      }
+
+      // Setup stdout to next pipe (except for last command)
+      if (i < clist->num - 1) {
+        if (dup2(pipes[i][1], STDOUT_FILENO) == -1) {
+          perror("dup2 stdout");
+          exit(1);
+        }
+      } else {
+        // Last command in pipeline - redirect stdout to client socket
+        if (dup2(cli_sock, STDOUT_FILENO) == -1) {
+          perror("dup2 stdout to socket");
+          exit(1);
+        }
+        if (dup2(cli_sock, STDERR_FILENO) == -1) {
+          perror("dup2 stderr to socket");
+          exit(1);
+        }
+      }
+
+      // Close all pipe fds in child
+      for (int j = 0; j < clist->num - 1; j++) {
+        close(pipes[j][0]);
+        close(pipes[j][1]);
+      }
+
+      // Handle input/output redirection for the command
+      if (clist->commands[i].input_file != NULL) {
+        int fd = open(clist->commands[i].input_file, O_RDONLY);
+        if (fd < 0) {
+          perror("open input file");
+          exit(errno);
+        }
+        if (dup2(fd, STDIN_FILENO) == -1) {
+          perror("dup2 input redirection");
+          exit(errno);
+        }
+        close(fd);
+      }
+
+      if (clist->commands[i].output_file != NULL) {
+        int flags = O_WRONLY | O_CREAT;
+        if (clist->commands[i].append_mode) {
+          flags |= O_APPEND;
+        } else {
+          flags |= O_TRUNC;
+        }
+        int fd = open(clist->commands[i].output_file, flags, 0644);
+        if (fd < 0) {
+          perror("open output file");
+          exit(errno);
+        }
+        if (dup2(fd, STDOUT_FILENO) == -1) {
+          perror("dup2 output redirection");
+          exit(errno);
+        }
+        close(fd);
+      }
+
+      // Execute the command
+      char *exe = clist->commands[i].argv[0];
+
+      // Handle built-in commands
+      if (strcmp(exe, "dragon") == 0) {
+        print_dragon();
+        exit(0);
+      } else if (strcmp(exe, "cd") == 0) {
+        // cd in pipeline is handled by parent process
+        exit(0);
+      } else if (strcmp(exe, "rc") == 0) {
+        printf("%d\n", last_rc);
+        exit(0);
+      } else if (strcmp(exe, EXIT_CMD) == 0) {
+        exit(0);
+      }
+
+      execvp(exe, clist->commands[i].argv);
+
+      // If we get here, exec failed
+      fprintf(stderr, "Command execution failed: %s\n", strerror(errno));
+      exit(errno);
+    }
+  }
+
+  // Parent process - close all pipes
+  for (int i = 0; i < clist->num - 1; i++) {
+    close(pipes[i][0]);
+    close(pipes[i][1]);
+  }
+
+  // Wait for all children to finish
+  for (int i = 0; i < clist->num; i++) {
+    if (waitpid(pids[i], &status, 0) == -1) {
+      perror("waitpid");
+      return ERR_RDSH_CMD_EXEC;
+    }
+
+    // Get exit status of last command in pipeline
+    if (i == clist->num - 1) {
+      if (WIFEXITED(status)) {
+        last_rc = WEXITSTATUS(status);
+      } else {
+        last_rc = 1; // Error
+      }
+    }
+  }
+
+  return last_rc;
 }
 
 /**************   OPTIONAL STUFF  ***************/
